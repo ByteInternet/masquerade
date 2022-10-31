@@ -11,6 +11,9 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Illuminate\Database\Capsule\Manager as Capsule;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
+use Symfony\Component\Console\Question\Question;
+use Symfony\Component\Yaml\Yaml;
 
 class IdentifyCommand extends Command
 {
@@ -69,7 +72,7 @@ class IdentifyCommand extends Command
             ->addOption('charset', null, InputOption::VALUE_OPTIONAL, 'Database charset [utf8]');
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $this->input = $input;
         $this->output = $output;
@@ -77,7 +80,9 @@ class IdentifyCommand extends Command
         $this->setup();
 
         $this->identifiers = [
+            'first_name',
             'firstName',
+            'last_name',
             'lastName',
             'address',
             'suffix',
@@ -95,6 +100,8 @@ class IdentifyCommand extends Command
             'company',
             'remote_ip',
             'ip_address',
+            'ipaddress',
+            'credit_card',
             'creditCard',
             'transaction'
         ];
@@ -105,14 +112,14 @@ class IdentifyCommand extends Command
         foreach ($tableNames as $tableName) {
             $columns = $this->db->getSchemaBuilder()->getColumnListing($tableName);
             foreach ($columns as $columnName) {
-                if ($formatter = $this->strposa($columnName, $this->identifiers)) {
-                    $exampleValues = array_map(function ($exampleValue) use ($columnName) {
+                if ($formatter = $this->striposa($columnName, $this->identifiers)) {
+                    $exampleValues = array_filter(array_map(function ($exampleValue) use ($columnName) {
                         $string = $exampleValue->{$columnName};
                         if (strlen($string) > 30) {
                             $string = substr($string, 0, 30) . '...';
                         }
-                        return $string;
-                    }, $this->db->table($tableName)->whereNotNull($columnName)->distinct()->inRandomOrder()->limit(3)->get([$columnName])->toArray());
+                        return utf8_encode($string) === $string ? $string : false;
+                    }, $this->db->table($tableName)->whereNotNull($columnName)->distinct()->inRandomOrder()->limit(3)->get([$columnName])->toArray()));
                     $candidates[] = [$tableName, $columnName, $formatter, implode(', ', $exampleValues)];
                 }
             }
@@ -122,6 +129,33 @@ class IdentifyCommand extends Command
         $candidatesTable->setHeaders(['Table', 'Column', 'Suggested formatter', 'Example values']);
         $candidatesTable->setRows($candidates);
         $candidatesTable->render();
+
+        $yamls = [];
+        foreach ($candidates as $candidate) {
+            list($table, $column, $formatter, $examples) = $candidate;
+            $helper = $this->getHelper('question');
+            $default = true;
+            if (empty($examples)) {
+                $examples = 'None';
+                $default = false;
+            }
+            $question = new ConfirmationQuestion(sprintf("<comment>Example values: %s</comment>\nDo you want to add <options=bold>%s</> with formatter <options=bold>%s</>?</question> <info>%s</info> ", print_r($examples, true), $table . '.' . $column, $formatter, $default ? '[Y/n]' : '[y/N]'), $default);
+
+            if ($helper->ask($input, $output, $question)) {
+                $question = new Question(sprintf('What group do you want to add it to? <info>[%s]</> ', $table), $table);
+                $group = $helper->ask($input, $output, $question);
+                $filename = 'src/config/' . $this->platformName . '/' . $group . '.yaml';
+                $yamls[$filename][$group][$table]['columns'][$column]['formatter'] = $formatter;
+            }
+        }
+
+        foreach ($yamls as $filename => $content) {
+            @mkdir(dirname($filename), 0777, true);
+            file_put_contents($filename, Yaml::dump($content));
+            $this->output->writeln(sprintf('Wrote instructions to %s', $filename));
+        }
+
+        return 0;
     }
 
     /**
@@ -144,7 +178,7 @@ class IdentifyCommand extends Command
         $driver = $this->input->getOption('driver') ?? $databaseConfig['driver'] ?? 'mysql';
         $database = $this->input->getOption('database') ?? $databaseConfig['database'];
         $username = $this->input->getOption('username') ?? $databaseConfig['username'];
-        $password = $this->input->getOption('password') ?? $databaseConfig['password'];
+        $password = $this->input->getOption('password') ?? $databaseConfig['password'] ?? '';
         $prefix = $this->input->getOption('prefix') ?? $databaseConfig['prefix'] ?? '';
         $charset = $this->input->getOption('charset') ?? $databaseConfig['charset'] ?? 'utf8';
 
@@ -222,7 +256,7 @@ class IdentifyCommand extends Command
         }
 
         $tableNames = array_map(function ($tableName) {
-            return $this->str_replace_first($this->prefix, null, $tableName);
+            return $this->str_replace_first($this->prefix, '', $tableName);
         }, $tableNames);
 
         $tableNames = array_diff($tableNames, $excludedTableNames);
@@ -236,13 +270,13 @@ class IdentifyCommand extends Command
      * @param int $offset
      * @return bool
      */
-    protected function strposa($haystack, $needle, $offset = 0)
+    protected function striposa($haystack, $needle, int $offset = 0)
     {
         if (!is_array($needle)) {
             $needle = array($needle);
         }
         foreach ($needle as $query) {
-            if (strpos($haystack, $query, $offset) !== false) {
+            if (stripos($haystack, $query, $offset) !== false) {
                 return $query;
             }
         }

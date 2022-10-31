@@ -26,7 +26,7 @@ class RunCommand extends Command
             |
                    by elgentos';
 
-    const VERSION = '0.3.2';
+    const VERSION = '1.2.1';
 
     const DEFAULT_DATA_PROCESSOR_FACTORY = DefaultDataProcessorFactory::class;
 
@@ -108,9 +108,9 @@ class RunCommand extends Command
     /**
      * Execute the console command.
      *
-     * @return mixed
+     * @return int
      */
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $this->input = $input;
         $this->output = SymfonyOutput::createFromSymfonyOutput($output);
@@ -133,6 +133,8 @@ class RunCommand extends Command
         }
 
         $this->output->success('Anonymization complete in [%s]', $startTime->diff(new \DateTime())->format('%h:%i:%s'));
+
+        return 0;
     }
 
     /**
@@ -327,7 +329,7 @@ class RunCommand extends Command
             $this->db->statement('SET FOREIGN_KEY_CHECKS=0');
         }
 
-        $this->db->statement("SET GLOBAL sql_mode=''");
+        $this->db->statement("SET SESSION sql_mode=''");
 
         $this->tableServiceFactory = new TableServiceFactory($this->db);
 
