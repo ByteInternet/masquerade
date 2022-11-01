@@ -5,12 +5,13 @@
 #export DH_VERBOSE=1
 
 build:
-	composer self-update --2
-	composer update
+	mkdir -p build/bin
+	wget https://raw.githubusercontent.com/composer/getcomposer.org/76a7060ccb93902cd7576b67264ad91c8a2700e2/web/installer -O - -q | php -- --quiet --install-dir=build/bin --filename=composer
+	build/bin/composer update
 	chmod +x build.sh
-	./build.sh
+	PATH=build/bin:$$PATH ./build.sh
 
 override_dh_usrlocal:
 
 %:
-	dh $@ 
+	dh $@
