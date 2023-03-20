@@ -5,6 +5,7 @@
         "KevinGH\\Box\\Compactor\\Php"
     ],
     "compression": "GZ",
+    "check-requirements": false,
     "directories": [
         "src"
     ],
